@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask Image Downloader</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 50px;
+        }
+        .container {
+            max-width: 800px;
+        }
+        #imageContainer img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            padding: 5px;
+            display: block;
+            margin-top: 20px;
+        }
+        .message-success {
+            color: green;
+        }
+        .message-error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4 text-center">Hello from Flask Image Downloader!</h1>
+        <p class="lead text-center">This is a simple web application to download images from a URL.</p>
+
+        <div class="card mt-5">
+            <div class="card-header">
+                <h2>Download Image from URL</h2>
+            </div>
+            <div class="card-body">
+                <form id="imageDownloadForm">
+                    <div class="mb-3">
+                        <label for="imageUrl" class="form-label">Image URL:</label>
+                        <input type="text" class="form-control" id="imageUrl" name="imageUrl" placeholder="Enter image URL" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Download Image</button>
+                </form>
+                <div id="imageContainer" class="mt-4 text-center">
+                    <p id="message" class="fw-bold"></p>
+                    <img id="downloadedImage" src="" alt="Downloaded Image" class="img-fluid" style="display:none;">
+                    <button id="printImageBtn" class="btn btn-secondary mt-3" style="display:none;">Print Image</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('imageDownloadForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const imageUrl = document.getElementById('imageUrl').value;
+            const messageElement = document.getElementById('message');
+            const imageElement = document.getElementById('downloadedImage');
+            const printButton = document.getElementById('printImageBtn');
+
+            messageElement.textContent = 'Downloading image...';
+            messageElement.className = 'message-info';
+            imageElement.style.display = 'none';
+            imageElement.src = '';
+            printButton.style.display = 'none'; // Hide print button initially
+
+            try {
+                const response = await fetch('/download_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url: imageUrl })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    imageElement.src = data.image_path;
+                    imageElement.style.display = 'block';
+                    messageElement.textContent = `Image downloaded successfully in ${data.download_time} seconds!`;
+                    messageElement.className = 'message-success';
+                    printButton.style.display = 'block'; // Show print button
+                    printButton.dataset.imagePath = data.image_path; // Store image path for printing
+                } else {
+                    messageElement.textContent = 'Error: ' + (data.error || 'Unknown error');
+                    messageElement.className = 'message-error';
+                }
+            } catch (error) {
+                messageElement.textContent = 'Network error: ' + error.message;
+                messageElement.className = 'message-error';
+            }
+        });
+
+        document.getElementById('printImageBtn').addEventListener('click', async function() {
+            const imagePath = this.dataset.imagePath;
+            const messageElement = document.getElementById('message');
+
+            if (!imagePath) {
+                messageElement.textContent = 'Error: No image to print.';
+                messageElement.className = 'message-error';
+                return;
+            }
+
+            messageElement.textContent = 'Sending image to printer...';
+            messageElement.className = 'message-info';
+
+            try {
+                const response = await fetch('/print_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image_path: imagePath })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    messageElement.textContent = data.message;
+                    messageElement.className = 'message-success';
+                } else {
+                    messageElement.textContent = 'Error: ' + (data.error || 'Unknown error');
+                    messageElement.className = 'message-error';
+                }
+            } catch (error) {
+                messageElement.textContent = 'Network error: ' + error.message;
+                messageElement.className = 'message-error';
+            }
+        });
+    </script>
+</body>
+</html>

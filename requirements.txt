@@ -1,0 +1,6 @@
+Flask
+Flask-CORS
+requests
+Pillow
+pywin32
+pyinstaller
