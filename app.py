@@ -110,7 +110,7 @@ def download_image():
             print(f"This is not the designated server. Forwarding request to {SERVER_IP}.")
             # Forward the request to the designated server
             forward_url = f"http://{SERVER_IP}:4000/api/print"  # Assuming Flask runs on port 5000
-            forward_response = requests.post(forward_url, json={'url': image_url})
+            forward_response = requests.post(forward_url, json={'filePath': image_url, 'printerName': printerName})
             forward_response.raise_for_status()  # Raise an exception for HTTP errors from the forwarded request
             return jsonify(forward_response.json()), forward_response.status_code
     except requests.exceptions.RequestException as e:
