@@ -13,6 +13,11 @@ from PIL import Image, ImageWin  # Import PIL for image handling
 import sys, os
 from flask import Flask
 
+
+ # tạo folder outputs nếu chưa tồn tại
+if not os.path.exists('outputs'):
+    os.makedirs('outputs')
+
 def resource_path(relative_path):
     """Lấy đường dẫn thực khi chạy cả file .py và .exe"""
     if hasattr(sys, '_MEIPASS'):
@@ -95,14 +100,16 @@ def download_image():
         if local_machine_ip == SERVER_IP:
             print("This is the designated server. Performing local download.")
             result = _download_and_save_image(image_url)
-            fullPath = os.path.join(os.getcwd(), result['image_path'].lstrip('/'))
-            print(f"Image saved at: {fullPath}")
-            print_image(fullPath, printerName)
+            relative_path = result['image_path'].replace('/', os.sep).replace('\\', os.sep).lstrip(os.sep)
+            full_path = os.path.join(os.getcwd(), relative_path)
+
+            print(f"Image saved at: {full_path}")
+            print_image(full_path, printerName)
             return jsonify({"message": "Image downloaded successfully", **result}), 200
         else:
             print(f"This is not the designated server. Forwarding request to {SERVER_IP}.")
             # Forward the request to the designated server
-            forward_url = f"http://{SERVER_IP}:5000/download_image"  # Assuming Flask runs on port 5000
+            forward_url = f"http://{SERVER_IP}:4000/api/print"  # Assuming Flask runs on port 5000
             forward_response = requests.post(forward_url, json={'url': image_url})
             forward_response.raise_for_status()  # Raise an exception for HTTP errors from the forwarded request
             return jsonify(forward_response.json()), forward_response.status_code
@@ -116,73 +123,21 @@ def serve_downloaded_image(filename):
 
 
 def print_image(image_path: str, printer_name: str = None):
-    """In ảnh với tên máy in cụ thể. Tự động xoay và canh giữa ảnh."""
-
+    """In ảnh sử dụng lệnh rundll32 shimgvw.dll,ImageView_PrintTo."""
+    import subprocess
     if not os.path.exists(image_path):
         print(f"❌ Không tìm thấy ảnh: {image_path}")
         return False
-
     try:
-        # Mở ảnh và lấy kích thước
-        img = Image.open(image_path)
-        img_width, img_height = img.size
-
-        print(f"🖼️ Ảnh: {image_path} ({img_width}x{img_height}px)")
-
-        # Nếu không có tên máy in, dùng mặc định
-        if not printer_name:
-            printer_name = win32print.GetDefaultPrinter()
-
-        print(f"🖨️ Máy in: {printer_name}")
-
-        # Tạo DC (Device Context)
-        hDC = win32ui.CreateDC()
-        hDC.CreatePrinterDC(printer_name)
-
-        # Kích thước giấy in thực tế
-        printable_width = hDC.GetDeviceCaps(8)   # HORZRES
-        printable_height = hDC.GetDeviceCaps(10) # VERTRES
-        print(f"📄 Vùng in: {printable_width}x{printable_height}px")
-
-        # --- Xoay ảnh nếu cần ---
-        img_is_portrait = img_height > img_width
-        paper_is_portrait = printable_height > printable_width
-        if img_is_portrait != paper_is_portrait:
-            print("🔄 Đang xoay ảnh 90 độ...")
-            img = img.rotate(90, expand=True)
-            img_width, img_height = img.size
-            print(f"🔁 Ảnh sau khi xoay: {img_width}x{img_height}px")
-
-        # --- Tính kích thước phù hợp để không bị méo ---
-        img_aspect = img_width / img_height
-        paper_aspect = printable_width / printable_height
-
-        if img_aspect > paper_aspect:
-            new_width = printable_width
-            new_height = int(new_width / img_aspect)
+        cmd = f"rundll32.exe C:\\Windows\\System32\\shimgvw.dll,ImageView_PrintTo /pt \"{image_path}\" \"{printer_name}\""
+        print(f"Chạy lệnh: {cmd}")
+        completed = subprocess.run(cmd, shell=False)
+        if completed.returncode == 0:
+            print("✅ In thành công.")
+            return True
         else:
-            new_height = printable_height
-            new_width = int(new_height * img_aspect)
-
-        # Căn giữa ảnh
-        x_offset = (printable_width - new_width) // 2
-        y_offset = (printable_height - new_height) // 2
-
-        print(f"📐 Kích thước in: {new_width}x{new_height}px | Căn giữa: ({x_offset}, {y_offset})")
-
-        # In
-        hDC.StartDoc(image_path)
-        hDC.StartPage()
-        dib = ImageWin.Dib(img)
-        draw_rect = (x_offset, y_offset, x_offset + new_width, y_offset + new_height)
-        dib.draw(hDC.GetHandleOutput(), draw_rect)
-        hDC.EndPage()
-        hDC.EndDoc()
-        hDC.DeleteDC()
-
-        print("✅ In thành công.")
-        return True
-
+            print(f"❌ Lỗi khi in ảnh, mã lỗi: {completed.returncode}")
+            return False
     except Exception as e:
         print(f"❌ Lỗi khi in ảnh: {e}")
         return False
