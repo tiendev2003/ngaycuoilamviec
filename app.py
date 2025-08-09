@@ -6,6 +6,8 @@ import uuid
 import time
 import socket  # Import socket module
 from config import SERVER_IP  # Import SERVER_IP
+from PIL import Image
+import subprocess
 
 
 import sys, os
@@ -126,21 +128,19 @@ def print_image():
         return jsonify({"error": "Image not found"}), 404
 
     try:
-        if WIN32_AVAILABLE:
-            printer_name = win32print.GetDefaultPrinter()
-            win32api.ShellExecute(
-                0,
-                "printto",
-                full_image_path,
-                f'"{printer_name}"',
-                ".",
-                0
-            )
-            print(f"Sent {filename} to printer {printer_name} automatically.")
-            return jsonify({"message": f"Sent {filename} to printer {printer_name} automatically."}), 200
+        # Convert image to PDF
+        pdf_path = full_image_path + '.pdf'
+        with Image.open(full_image_path) as img:
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(pdf_path, "PDF", resolution=100.0)
+        # Use Windows print command
+        print_cmd = f'print /d:"{win32print.GetDefaultPrinter()}" "{pdf_path}"'
+        result = subprocess.run(print_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            return jsonify({"message": f"Sent {filename} (as PDF) to printer automatically."}), 200
         else:
-            print("win32print/win32api not available. Please install pywin32.")
-            return jsonify({"error": "win32print/win32api not available. Please install pywin32."}), 500
+            return jsonify({"error": f"Print command failed: {result.stderr}"}), 500
     except Exception as e:
         print(f"Error printing image: {str(e)}")
         return jsonify({"error": f"Failed to print image: {str(e)}"}), 500
