@@ -6,8 +6,8 @@ import uuid
 import time
 import socket  # Import socket module
 from config import SERVER_IP  # Import SERVER_IP
-from PIL import Image
-import subprocess
+import win32ui
+from PIL import Image, ImageWin  # Import PIL for image handling
 
 
 import sys, os
@@ -78,10 +78,13 @@ def hello_world():
     return render_template('index.html')
 
 
-@app.route('/download_image', methods=['POST'])
+@app.route('/api/print', methods=['POST'])
 def download_image():
     data = request.get_json()
-    image_url = data.get('url')
+    image_url = data.get('filePath')
+    printerName = data.get('printerName')
+
+    
     if not image_url:
         return jsonify({"error": "URL is required"}), 400
 
@@ -92,6 +95,9 @@ def download_image():
         if local_machine_ip == SERVER_IP:
             print("This is the designated server. Performing local download.")
             result = _download_and_save_image(image_url)
+            fullPath = os.path.join(os.getcwd(), result['image_path'].lstrip('/'))
+            print(f"Image saved at: {fullPath}")
+            print_image(fullPath, printerName)
             return jsonify({"message": "Image downloaded successfully", **result}), 200
         else:
             print(f"This is not the designated server. Forwarding request to {SERVER_IP}.")
@@ -108,43 +114,82 @@ def download_image():
 def serve_downloaded_image(filename):
     return send_from_directory('outputs', filename)
 
-@app.route('/print_image', methods=['POST'])
-def print_image():
-    data = request.get_json()
-    image_path = data.get('image_path')
 
-    if not image_path:
-        return jsonify({"error": "Image path is required"}), 400
+def print_image(image_path: str, printer_name: str = None):
+    """In ảnh với tên máy in cụ thể. Tự động xoay và canh giữa ảnh."""
 
-    # Ensure the path is relative to the outputs directory
-    if image_path.startswith('/outputs/'):
-        filename = image_path.replace('/outputs/', '')
-    else:
-        filename = image_path # Assume it's just the filename if not starting with /outputs/
-
-    full_image_path = os.path.join(os.getcwd(), 'outputs', filename)
-
-    if not os.path.exists(full_image_path):
-        return jsonify({"error": "Image not found"}), 404
+    if not os.path.exists(image_path):
+        print(f"❌ Không tìm thấy ảnh: {image_path}")
+        return False
 
     try:
-        # Convert image to PDF
-        pdf_path = full_image_path + '.pdf'
-        with Image.open(full_image_path) as img:
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            img.save(pdf_path, "PDF", resolution=100.0)
-        # Use Windows print command
-        print_cmd = f'print /d:"{win32print.GetDefaultPrinter()}" "{pdf_path}"'
-        result = subprocess.run(print_cmd, shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
-            return jsonify({"message": f"Sent {filename} (as PDF) to printer automatically."}), 200
+        # Mở ảnh và lấy kích thước
+        img = Image.open(image_path)
+        img_width, img_height = img.size
+
+        print(f"🖼️ Ảnh: {image_path} ({img_width}x{img_height}px)")
+
+        # Nếu không có tên máy in, dùng mặc định
+        if not printer_name:
+            printer_name = win32print.GetDefaultPrinter()
+
+        print(f"🖨️ Máy in: {printer_name}")
+
+        # Tạo DC (Device Context)
+        hDC = win32ui.CreateDC()
+        hDC.CreatePrinterDC(printer_name)
+
+        # Kích thước giấy in thực tế
+        printable_width = hDC.GetDeviceCaps(8)   # HORZRES
+        printable_height = hDC.GetDeviceCaps(10) # VERTRES
+        print(f"📄 Vùng in: {printable_width}x{printable_height}px")
+
+        # --- Xoay ảnh nếu cần ---
+        img_is_portrait = img_height > img_width
+        paper_is_portrait = printable_height > printable_width
+        if img_is_portrait != paper_is_portrait:
+            print("🔄 Đang xoay ảnh 90 độ...")
+            img = img.rotate(90, expand=True)
+            img_width, img_height = img.size
+            print(f"🔁 Ảnh sau khi xoay: {img_width}x{img_height}px")
+
+        # --- Tính kích thước phù hợp để không bị méo ---
+        img_aspect = img_width / img_height
+        paper_aspect = printable_width / printable_height
+
+        if img_aspect > paper_aspect:
+            new_width = printable_width
+            new_height = int(new_width / img_aspect)
         else:
-            return jsonify({"error": f"Print command failed: {result.stderr}"}), 500
+            new_height = printable_height
+            new_width = int(new_height * img_aspect)
+
+        # Căn giữa ảnh
+        x_offset = (printable_width - new_width) // 2
+        y_offset = (printable_height - new_height) // 2
+
+        print(f"📐 Kích thước in: {new_width}x{new_height}px | Căn giữa: ({x_offset}, {y_offset})")
+
+        # In
+        hDC.StartDoc(image_path)
+        hDC.StartPage()
+        dib = ImageWin.Dib(img)
+        draw_rect = (x_offset, y_offset, x_offset + new_width, y_offset + new_height)
+        dib.draw(hDC.GetHandleOutput(), draw_rect)
+        hDC.EndPage()
+        hDC.EndDoc()
+        hDC.DeleteDC()
+
+        print("✅ In thành công.")
+        return True
+
     except Exception as e:
-        print(f"Error printing image: {str(e)}")
-        return jsonify({"error": f"Failed to print image: {str(e)}"}), 500
+        print(f"❌ Lỗi khi in ảnh: {e}")
+        return False
+
+
+
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0",port=4000,debug=False)

@@ -1,0 +1,1 @@
+pyinstaller --onefile --noconsole app.py --add-data "templates;templates" 

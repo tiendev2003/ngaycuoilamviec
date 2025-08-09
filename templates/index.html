@@ -72,7 +72,7 @@
             printButton.style.display = 'none'; // Hide print button initially
 
             try {
-                const response = await fetch('/download_image', {
+                const response = await fetch('/print', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
